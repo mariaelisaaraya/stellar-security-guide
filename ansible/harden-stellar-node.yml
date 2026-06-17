@@ -1,0 +1,266 @@
+---
+# =============================================================================
+#  harden-stellar-node.yml
+#  Automates the Part B.1 hardening from the guide, for Stellar nodes.
+#
+#  WHAT IT DOES: takes a freshly installed Ubuntu/Debian server and leaves it
+#  hardened and ready to run stellar-core / stellar-rpc (dedicated users,
+#  key-only SSH, firewall, fail2ban, NTP, sysctl, auditing).
+#
+#  HOW TO USE IT (from your machine, NOT from the server):
+#    1) Install Ansible:           pipx install ansible   (or: apt install ansible)
+#    2) Install the collections:   ansible-galaxy collection install community.general ansible.posix
+#    3) Edit inventory.ini with your server's IP.
+#    4) Paste your public SSH key into the ssh_public_key variable (below).
+#    5) Run:
+#         ansible-playbook -i inventory.ini harden-stellar-node.yml
+#
+#  The FIRST time you connect as root (or the user your provider gave you).
+#  After running it, you log in as the admin user you created, keys only.
+# =============================================================================
+
+- name: Stellar node hardening
+  hosts: stellar_nodes
+  become: true            # run tasks with sudo/root
+
+  vars:
+    # --- EDIT THESE VARIABLES ---
+    admin_user: stellaradmin                # your administrative user
+    ssh_public_key: "ssh-ed25519 AAAA...PASTE_YOUR_PUBLIC_KEY_HERE"
+    ssh_port: 22                            # see the note below before changing this
+    peer_port: 11625                        # Stellar consensus port (don't change without reason)
+    # ----------------------------
+    #
+    # NOTE ON ssh_port: on Ubuntu 22.10+ SSH uses systemd *socket activation*,
+    # so a non-default port set in sshd_config is silently ignored unless the
+    # socket unit is disabled. This playbook handles that automatically when
+    # ssh_port != 22. A non-standard port only reduces bot noise anyway —
+    # key-only auth + rate limiting is the real protection.
+
+  handlers:
+    # Handlers only run when a task "notifies" them (i.e., something changed).
+    - name: restart ssh
+      ansible.builtin.systemd:
+        name: ssh
+        state: restarted
+        daemon_reload: true
+
+    - name: restart fail2ban
+      ansible.builtin.systemd:
+        name: fail2ban
+        state: restarted
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # B.1.1  Update the whole system
+    # -------------------------------------------------------------------------
+    - name: Update package cache and upgrade everything to the latest version
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: dist
+        cache_valid_time: 3600
+
+    - name: Install the security packages we will use
+      ansible.builtin.apt:
+        name:
+          - ufw                 # firewall
+          - fail2ban            # bans IPs that repeatedly fail to log in
+          - unattended-upgrades # automatic security patches
+          - chrony              # time sync (critical for validators)
+          - lynis               # security auditing
+          - auditd              # security event logging
+          - aide                # file-integrity monitoring
+        state: present
+
+    # -------------------------------------------------------------------------
+    # B.1.2  Administrative user + service user
+    # -------------------------------------------------------------------------
+    - name: Create the administrative user (with sudo)
+      ansible.builtin.user:
+        name: "{{ admin_user }}"
+        groups: sudo
+        shell: /bin/bash
+        append: true
+        state: present
+
+    - name: Install your public SSH key for the admin user
+      ansible.posix.authorized_key:
+        user: "{{ admin_user }}"
+        key: "{{ ssh_public_key }}"
+        state: present
+
+    - name: Create the 'stellar' service user (no login, no shell)
+      ansible.builtin.user:
+        name: stellar
+        system: true
+        create_home: false
+        shell: /usr/sbin/nologin
+        state: present
+
+    # -------------------------------------------------------------------------
+    # B.1.3  Harden SSH (using a drop-in file: cleaner and safer)
+    # -------------------------------------------------------------------------
+    - name: Apply hardened SSH configuration
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/99-hardening.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          # Managed by Ansible - do not edit by hand
+          Port {{ ssh_port }}
+          PermitRootLogin no
+          PasswordAuthentication no
+          PubkeyAuthentication yes
+          KbdInteractiveAuthentication no
+          ChallengeResponseAuthentication no
+          AllowUsers {{ admin_user }}
+          MaxAuthTries 3
+          LoginGraceTime 30
+          X11Forwarding no
+          AllowAgentForwarding no
+          ClientAliveInterval 300
+          ClientAliveCountMax 2
+      notify: restart ssh
+
+    # Ubuntu 22.10+ socket activation: if a non-default SSH port is requested,
+    # the socket unit must be disabled or the Port directive is ignored.
+    - name: Check whether ssh.socket exists
+      ansible.builtin.stat:
+        path: /lib/systemd/system/ssh.socket
+      register: ssh_socket_unit
+
+    - name: Disable ssh.socket so the custom port takes effect (Ubuntu 22.10+)
+      ansible.builtin.systemd:
+        name: ssh.socket
+        enabled: false
+        state: stopped
+      when:
+        - ssh_port != 22
+        - ssh_socket_unit.stat.exists
+      notify: restart ssh
+
+    - name: Ensure ssh.service is enabled
+      ansible.builtin.systemd:
+        name: ssh
+        enabled: true
+        state: started
+
+    # -------------------------------------------------------------------------
+    # B.1.4  Default-deny firewall
+    # -------------------------------------------------------------------------
+    - name: Default policy - deny all inbound
+      community.general.ufw:
+        direction: incoming
+        policy: deny
+
+    - name: Default policy - allow all outbound
+      community.general.ufw:
+        direction: outgoing
+        policy: allow
+
+    - name: Allow SSH with rate-limit (stops brute force)
+      community.general.ufw:
+        rule: limit
+        port: "{{ ssh_port }}"
+        proto: tcp
+
+    - name: Allow the Stellar consensus port (PEER_PORT)
+      community.general.ufw:
+        rule: allow
+        port: "{{ peer_port }}"
+        proto: tcp
+
+    # NOTE: the HTTP_PORT (11626) is NOT opened. It stays on localhost on purpose.
+
+    - name: Enable the firewall
+      community.general.ufw:
+        state: enabled
+
+    # -------------------------------------------------------------------------
+    # B.1.5  fail2ban
+    # -------------------------------------------------------------------------
+    - name: Configure fail2ban for SSH
+      ansible.builtin.copy:
+        dest: /etc/fail2ban/jail.local
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [sshd]
+          enabled  = true
+          # Ubuntu 24.04 minimal installs log sshd to the systemd journal and
+          # /var/log/auth.log may not exist - 'backend = systemd' handles that.
+          backend  = systemd
+          port     = {{ ssh_port }}
+          maxretry = 3
+          bantime  = 1h
+          findtime = 10m
+      notify: restart fail2ban
+
+    - name: Ensure fail2ban is active and starts on boot
+      ansible.builtin.systemd:
+        name: fail2ban
+        enabled: true
+        state: started
+
+    # -------------------------------------------------------------------------
+    # B.1.6  Automatic security updates
+    # -------------------------------------------------------------------------
+    - name: Enable unattended-upgrades
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+
+    # -------------------------------------------------------------------------
+    # B.1.7  Time synchronization (critical for Stellar consensus)
+    # -------------------------------------------------------------------------
+    - name: Enable and start chrony (NTP)
+      ansible.builtin.systemd:
+        name: chrony
+        enabled: true
+        state: started
+
+    # -------------------------------------------------------------------------
+    # B.1.9  Kernel hardening (sysctl)
+    # -------------------------------------------------------------------------
+    - name: Apply kernel hardening parameters
+      ansible.posix.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        sysctl_file: /etc/sysctl.d/99-stellar-hardening.conf
+        state: present
+        reload: true
+      loop:
+        - { name: net.ipv4.icmp_echo_ignore_broadcasts, value: "1" }
+        - { name: net.ipv4.conf.all.rp_filter, value: "1" }
+        - { name: net.ipv4.conf.default.rp_filter, value: "1" }
+        - { name: net.ipv4.conf.all.accept_redirects, value: "0" }
+        - { name: net.ipv4.conf.all.send_redirects, value: "0" }
+        - { name: net.ipv4.conf.all.accept_source_route, value: "0" }
+        - { name: net.ipv4.conf.all.log_martians, value: "1" }
+        - { name: net.ipv4.tcp_syncookies, value: "1" }
+        - { name: kernel.dmesg_restrict, value: "1" }
+        - { name: kernel.kptr_restrict, value: "2" }
+
+    # -------------------------------------------------------------------------
+    # B.1.10  Auditing and integrity
+    # -------------------------------------------------------------------------
+    - name: Enable auditd
+      ansible.builtin.systemd:
+        name: auditd
+        enabled: true
+        state: started
+
+    - name: Final notice
+      ansible.builtin.debug:
+        msg: >
+          Hardening applied. From now on, log in with:
+          ssh -p {{ ssh_port }} {{ admin_user }}@<IP>.
+          Test that connection in a NEW terminal BEFORE closing this session.
+          Still pending (run once): 'sudo lynis audit system' and 'sudo aideinit'.
