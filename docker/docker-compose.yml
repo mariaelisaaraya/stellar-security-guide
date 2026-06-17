@@ -1,0 +1,133 @@
+# =============================================================================
+#  docker-compose.yml  -  Isolated Stellar RPC node (Captive Core included)
+#
+#  ARCHITECTURE (outside to inside):
+#
+#     Internet ──► [ caddy ]   ──►  [ stellar-rpc ]  ──►  (internal Captive Core)
+#                  reverse proxy     internal port          syncs with the
+#                  HTTPS + public    NOT published          Stellar network
+#
+#  WHY THIS DESIGN:
+#  - stellar-rpc bundles "Captive Core": it runs its own ephemeral stellar-core,
+#    so you do NOT need a separate core container.
+#  - The RPC does NOT publish its ports to the host. Only 'caddy' is reachable
+#    from the internet. This enforces the golden rule: nothing raw exposed.
+#  - The RPC's ADMIN_ENDPOINT (metrics, admin) stays ONLY on the internal
+#    Docker network. The official docs explicitly warn it must not be
+#    reachable from the internet (it has no TLS and no auth).
+#
+#  HOW TO USE IT:
+#    1) Copy .env.example to .env and edit the values.
+#    2) Generate the RPC config (one time only):
+#         docker run stellar/stellar-rpc:latest gen-config-file > config/stellar-rpc-config.toml
+#       and get the captive-core .cfg for your network (testnet/pubnet) from the
+#       official docs, saving it as config/stellar-captive-core.cfg
+#       (this file defines which validators your RPC trusts — that is a security
+#       decision YOU must review, not copy blindly).
+#    3) Bring everything up:   docker compose up -d
+#    4) Watch the logs:        docker compose logs -f stellar-rpc
+#    5) Tear it down:          docker compose down
+#
+#  TIP: start on TESTNET. Only move to pubnet once everything works.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  #  Stellar RPC (includes Captive Core)
+  # ---------------------------------------------------------------------------
+  stellar-rpc:
+    image: stellar/stellar-rpc:latest
+    container_name: stellar-rpc
+    restart: unless-stopped
+
+    # NOTE: there is deliberately NO 'ports:' section. The RPC is not exposed
+    # to the host. It is only reachable by other containers on 'stellar-net'.
+    expose:
+      - "8000"   # public RPC endpoint (consumed internally by caddy)
+      - "8001"   # admin/metrics (internal only; not even caddy exposes it)
+
+    command:
+      - --config-path=/opt/stellar/stellar-rpc-config.toml
+      - --captive-core-config-path=/opt/stellar/stellar-captive-core.cfg
+
+    volumes:
+      - ./config:/opt/stellar:ro          # configs (read-only)
+      - rpc-data:/var/lib/stellar         # database + captive core storage
+
+    networks:
+      - stellar-net
+
+    # Resource limits: don't let the RPC eat the whole server.
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+    # Container hardening
+    security_opt:
+      - no-new-privileges:true
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # ---------------------------------------------------------------------------
+  #  Caddy - reverse proxy (automatic HTTPS + the only public entry point)
+  # ---------------------------------------------------------------------------
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+
+    ports:
+      - "80:80"     # HTTPS redirect
+      - "443:443"   # encrypted public traffic
+
+    # RPC_DOMAIN comes from the .env file and is consumed by the Caddyfile
+    # via the {$RPC_DOMAIN} placeholder.
+    environment:
+      - RPC_DOMAIN=${RPC_DOMAIN}
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+    networks:
+      - stellar-net
+
+    depends_on:
+      - stellar-rpc
+
+    security_opt:
+      - no-new-privileges:true
+
+  # ---------------------------------------------------------------------------
+  #  (OPTIONAL) Prometheus - scrapes the RPC metrics from its admin endpoint
+  #  Uncomment if you want monitoring. Metrics come from stellar-rpc:8001/metrics
+  #  and never leave the internal network.
+  # ---------------------------------------------------------------------------
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   container_name: prometheus
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  #     - prom-data:/prometheus
+  #   networks:
+  #     - stellar-net
+  #   # Do not publish to the host: access Grafana/Prometheus via SSH tunnel.
+
+networks:
+  stellar-net:
+    driver: bridge
+
+volumes:
+  rpc-data:
+  caddy-data:
+  caddy-config:
+  # prom-data:

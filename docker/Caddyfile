@@ -1,0 +1,36 @@
+# =============================================================================
+#  Caddyfile  -  Reverse proxy configuration
+#
+#  Caddy obtains and renews the HTTPS certificate by itself (Let's Encrypt),
+#  as long as your domain's DNS points to this server.
+#
+#  {$RPC_DOMAIN} is read from the RPC_DOMAIN environment variable, which
+#  docker-compose passes in from your .env file — no need to edit this file.
+#
+#  This gives your RPC: automatic HTTPS and a single, controlled public entry
+#  point. The actual RPC never touches the internet directly.
+# =============================================================================
+
+{$RPC_DOMAIN} {
+    # Forward traffic to the RPC container over Docker's internal network.
+    reverse_proxy stellar-rpc:8000
+
+    # Basic rate limiting to curb abuse (requires the rate_limit plugin; the
+    # standard caddy image doesn't include it. Either build a custom image
+    # with xcaddy, or remove this comment block and rate-limit at another
+    # layer, e.g. a cloud firewall/WAF).
+    # @abuse {
+    #     ...
+    # }
+
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000;"
+        X-Content-Type-Options "nosniff"
+        -Server
+    }
+
+    log {
+        output file /data/access.log
+    }
+}
