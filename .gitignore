@@ -1,0 +1,11 @@
+# Claude Code session files (machine-specific, not for the repo)
+.claude/
+
+# macOS
+.DS_Store
+
+# Docker secrets (never commit the real .env)
+docker/.env
+
+# Ansible: real inventory with server IPs (keep only inventory.ini as template)
+ansible/inventory.local.ini
