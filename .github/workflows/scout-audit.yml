@@ -1,0 +1,78 @@
+# =============================================================================
+#  scout-audit.yml  -  Automated Soroban contract auditing with Scout
+#
+#  WHERE THIS FILE GOES:
+#  .github/workflows/scout-audit.yml  in your contracts repo.
+#
+#  LAYOUT ASSUMPTION:
+#  This workflow assumes your Cargo workspace lives under contracts/ (common
+#  in JS/TS monorepos where Rust contracts are a subdirectory). If your
+#  Cargo.toml is at the repo root, remove the two 'working-directory: contracts'
+#  lines and the 'workspaces: contracts' cache hint.
+#
+#  WHAT IT DOES:
+#  On every PR or push to main that touches Rust, it runs Scout across your
+#  entire Cargo workspace and uploads the findings to the repo's
+#  Security > Code scanning tab.
+# =============================================================================
+
+name: Scout Security Audit
+
+on:
+  pull_request:
+    paths:
+      - "contracts/**/*.rs"      # only runs if contract code was touched
+      - "contracts/**/Cargo.toml"
+  push:
+    branches: [main]
+    paths:
+      - "contracts/**"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  scout:
+    name: Scout Audit
+    runs-on: ubuntu-latest
+
+    # All 'run:' steps execute inside contracts/ (where the Cargo workspace is).
+    defaults:
+      run:
+        working-directory: contracts
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: contracts          # cache the contracts workspace
+
+      - name: Install cargo-scout-audit
+        run: cargo install cargo-scout-audit
+
+      # Runs Scout across your entire Cargo workspace.
+      # '--output-format sarif' is the documented flag; the filename flag may be
+      # --output-path on your version (check 'cargo scout-audit --help' if it errors).
+      - name: Run Scout
+        run: cargo scout-audit --output-format sarif --output-path scout-results.sarif
+        continue-on-error: true
+
+      # The SARIF file is produced inside contracts/, so the path is prefixed.
+      - name: Upload results to GitHub
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: contracts/scout-results.sarif
+
+      # (Optional) Make the PR FAIL on findings once you're comfortable.
+      # - name: Fail on vulnerabilities
+      #   run: cargo scout-audit
