@@ -33,7 +33,8 @@ Foundation sources, and keeps it practical.
 | Path | What it is |
 |------|-----------|
 | 📖 **[`GUIDE.md`](./GUIDE.md)** | The full security guide. Part A: Soroban contract security. Part B: node hardening. Part C: automation & checklists. **Start here.** |
-| 🔎 **[`skills/soroban-common-mistakes/`](./skills/soroban-common-mistakes/)** | An [Agent Skill](https://agentskills.io) that teaches Claude to review Soroban contracts against 22 common mistake patterns. Installable in Claude Code or claude.ai. |
+| 🔎 **[`skills/soroban-common-mistakes/`](./skills/soroban-common-mistakes/)** | An [Agent Skill](https://agentskills.io) that teaches Claude to review Soroban contracts against 23 common mistake patterns. Installable in Claude Code or claude.ai. |
+| 🧪 **[`examples/`](./examples/)** | Practice contracts: `vulnerable-vault` (15 deliberate bugs across all 5 skill categories) and `fixed-vault` (every bug corrected and tagged). Use them to try the skill before pointing it at your own code. |
 | 🤖 **[`ansible/`](./ansible/)** | One-command server hardening. Provisions a fresh Ubuntu/Debian box into a hardened Stellar node (users, SSH, firewall, fail2ban, NTP, sysctl, auditing). |
 | 🐳 **[`docker/`](./docker/)** | An isolated Stellar RPC node behind a reverse proxy, with the admin endpoint kept off the internet. `docker compose up` and you're running. |
 | ⚙️ **[`.github/workflows/`](./.github/workflows/)** | A GitHub Action that runs [Scout](https://github.com/CoinFabrik/scout-soroban) on every contract PR and reports findings to the Security tab. |
@@ -50,7 +51,11 @@ stellar-security-guide/
 ├── docker/
 │   ├── docker-compose.yml            ← isolated RPC node + reverse proxy
 │   ├── Caddyfile                     ← HTTPS reverse proxy config
+│   ├── prometheus.yml                ← Prometheus scrape config (monitoring)
 │   └── .env.example                  ← copy to .env and fill in
+├── examples/
+│   ├── vulnerable-vault/             ← broken contract: 15 bugs to find
+│   └── fixed-vault/                  ← same contract with all bugs resolved
 ├── .github/
 │   ├── workflows/
 │   │   └── scout-audit.yml           ← Scout CI on every PR
@@ -81,6 +86,12 @@ your contracts repo so every PR is scanned automatically.
 Read [Part B of the guide](./GUIDE.md#part-b--stellar-node-hardening), harden the
 box with the [Ansible playbook](./ansible/), and deploy the RPC with the
 [Docker setup](./docker/). Start on **testnet** before pubnet.
+
+**I want to try the skill before using it on my own code.**
+Open [`examples/vulnerable-vault/src/lib.rs`](./examples/vulnerable-vault/src/lib.rs)
+in Claude Code and ask *"review this contract for security issues"*. The skill
+will find the 15 deliberate bugs. Then compare with `examples/fixed-vault/` to
+see every fix explained.
 
 **I just want the checklist.**
 Grab [`skills/soroban-common-mistakes/references/checklist.md`](./skills/soroban-common-mistakes/references/checklist.md)
