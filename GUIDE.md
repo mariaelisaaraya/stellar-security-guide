@@ -268,6 +268,8 @@ if (clawbackEnabled) {
 - [ ] Events emitted for every auditable state change.
 - [ ] Typed errors via `#[contracterror]`.
 - [ ] `overflow-checks = true` in release.
+- [ ] Slippage protection (`min_out` / `max_in`) on any function where price or amount is computed on-chain.
+- [ ] No unbounded loops over storage collections.
 
 **Review questions:** Can anyone call admin functions without auth? Can it be
 reinitialized? Are external calls validated? Is the arithmetic safe? Can keys
@@ -666,7 +668,7 @@ and `.github/workflows/`):
 
 **Contracts**
 - [ ] External audit or, at minimum, Scout + peer review.
-- [ ] All items in checklist A.6 satisfied.
+- [ ] All items in checklists A.6 (contract) and A.7 (client-side) satisfied.
 - [ ] Upgrade and rollback plan defined (if the contract is mutable).
 
 **Nodes**

@@ -269,6 +269,8 @@ if (clawbackEnabled) {
 - [ ] Se emiten eventos para cada cambio de estado auditable.
 - [ ] Errores tipados via `#[contracterror]`.
 - [ ] `overflow-checks = true` en release.
+- [ ] Protección contra slippage (`min_out` / `max_in`) en funciones donde el precio o monto se calcula en cadena.
+- [ ] Sin loops ilimitados sobre colecciones de storage.
 
 **Preguntas de revisión:** ¿Puede alguien llamar funciones de admin sin auth? ¿Puede
 reinicializarse? ¿Las llamadas externas están validadas? ¿La aritmética es segura?
@@ -664,7 +666,7 @@ y `.github/workflows/`):
 
 **Contratos**
 - [ ] Auditoría externa o, como mínimo, Scout + peer review.
-- [ ] Todos los ítems del checklist A.6 cumplidos.
+- [ ] Todos los ítems de los checklists A.6 (contrato) y A.7 (cliente) cumplidos.
 - [ ] Plan de upgrade y rollback definido (si el contrato es mutable).
 
 **Nodos**

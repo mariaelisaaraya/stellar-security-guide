@@ -29,8 +29,11 @@ contribution counts.
 
 ## Scope
 
-This repo covers Soroban contract security and Stellar node operation. Frontend
-and general web security are out of scope (link to good external resources
-instead of duplicating them).
+This repo covers:
+- **Soroban contract security** — vulnerabilities, patterns, tooling.
+- **Stellar node operation** — hardening, firewall, key management.
+- **dApp / client-side security** — transaction signing, simulation, input display, address verification.
+
+General web security topics not specific to Stellar are out of scope — link to good external resources instead of duplicating them.
 
 All contributions are released under the [MIT License](./LICENSE).

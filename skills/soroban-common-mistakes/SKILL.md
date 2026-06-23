@@ -76,6 +76,7 @@ and give a concrete fix, not a generic warning.
 | 20 | **Missing tests** | When reviewing a project (not a lone snippet), check for a `test.rs` / `#[cfg(test)]` module. Flag critical functions with no test coverage, especially auth and arithmetic paths. |
 | 21 | **Leaked secrets** | Hardcoded secret keys, seeds, or API keys in source; `.env` not in `.gitignore`. Stellar secret keys (starting with `S...`) must never appear in committed code. |
 | 22 | **Unpinned `soroban-sdk`** | A floating `soroban-sdk` version in `Cargo.toml` for a contract intended for production. Pin the exact version used for the audited/deployed build to avoid surprises from minor upgrades. |
+| 23 | **Unbounded loops** | Any loop that iterates over a storage collection that can grow without limit (e.g., `for item in env.storage().persistent().get::<Vec<_>>(...)`) — these hit Soroban's CPU/instruction limits and become a resource-exhaustion DoS vector. Use pagination or per-item storage instead. |
 
 ## Output format
 
