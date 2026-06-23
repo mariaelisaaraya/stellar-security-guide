@@ -29,6 +29,15 @@ your own code.
 3. Claude will work through all 23 patterns and report findings in a structured
    table. Compare its output against the bug comments in the source file.
 
+4. Open `fixed-vault/src/lib.rs` alongside the vulnerable version to see each
+   fix tagged with the check number it addresses.
+
+## fixed-vault
+
+The corrected version of `vulnerable-vault`. Every fix is tagged with the check
+number from the skill (`FIX #N`) so you can trace each change back to the rule
+that motivated it.
+
 ### Issues embedded in vulnerable-vault
 
 | Category | Check # | What's broken |
