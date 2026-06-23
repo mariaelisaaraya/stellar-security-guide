@@ -49,6 +49,12 @@ vencido, confianza ciega en contratos externos u oráculos.
 a internet, SSH sin hardening, secretos de validador filtrados (`NODE_SEED`),
 ataques de denegación de servicio.
 
+> **Modelo de amenaza concreto para contratos.** Siempre asumí que el atacante puede:
+> - Pasar cualquier valor como argumento de función.
+> - Controlar el orden y timing de las transacciones.
+> - Controlar cualquier cuenta que *no* requiera su firma explícita.
+> - Desplegar contratos que imitan perfectamente tu interfaz.
+
 ---
 
 # PARTE A — Seguridad de Contratos Inteligentes Soroban
@@ -146,10 +152,36 @@ pub enum DataKey {
 }
 ```
 
-### 6) Condiciones de carrera / orden de estado
+### 6) Condiciones de carrera / orden de estado y frontrunning
 
 Realizá chequeos y cambios de estado de forma atómica, sin dejar brecha entre
-"validar" y "actuar" (ej: chequear slippage antes de transferir).
+"validar" y "actuar". Para swaps y cualquier operación donde el precio o monto se
+calcula en cadena al momento de ejecución, siempre dejá que el usuario pase una
+protección contra slippage:
+
+```rust
+// ✅ BIEN: el usuario controla el slippage aceptable
+pub fn swap(env: Env, user: Address, amount_in: i128, min_out: i128) {
+    user.require_auth();
+
+    let balance = get_balance(&env, &user);
+    if balance < amount_in {
+        panic_with_error!(&env, Error::InsufficientBalance);
+    }
+
+    let amount_out = calculate_output(amount_in);
+    if amount_out < min_out {
+        panic_with_error!(&env, Error::SlippageExceeded);
+    }
+
+    // Actualizá todo el estado junto — sin brecha entre chequeos y efectos
+    set_balance(&env, &user, balance - amount_in);
+    transfer_output(&env, &user, amount_out);
+}
+```
+
+Sin `min_out` (e idealmente un deadline), un ataque sandwich puede ejecutar
+la transacción a una tasa arbitrariamente mala.
 
 ### 7) Vulnerabilidades de TTL / archivado
 
@@ -212,7 +244,17 @@ pub enum Error {
 Aunque trabajes en Soroban, tu dApp toca la capa clásica de Stellar:
 
 - **Trustlines maliciosas:** verificá el emisor antes de crear una trustline. Siempre mostrá el código de asset completo + emisor en la UI. Usá listas de assets conocidos (`stellar.toml`).
-- **Clawback:** algunos assets permiten que el emisor los recupere. Chequeá `auth_clawback_enabled` en la cuenta del emisor y avisale al usuario.
+- **Clawback:** algunos assets permiten que el emisor los recupere. Chequeá `auth_clawback_enabled` en la cuenta del emisor y avisale al usuario o rechazá el asset:
+
+```typescript
+const issuerAccount = await server.loadAccount(asset.issuer);
+const clawbackEnabled = issuerAccount.flags.auth_clawback_enabled;
+
+if (clawbackEnabled) {
+  // Avisá claramente al usuario o rechazá el asset
+}
+```
+
 - **Account merge:** una cuenta mergeada puede recrearse con una configuración distinta. No guardes estado de cuenta a largo plazo para operaciones críticas.
 
 ## A.6 Checklist del contrato (pre-deploy)
@@ -233,11 +275,25 @@ reinicializarse? ¿Las llamadas externas están validadas? ¿La aritmética es s
 ¿Pueden colisionar las claves? ¿Sobreviven los datos críticos al archivado? ¿Se
 validan los retornos cross-contract?
 
-## A.7 Herramientas de seguridad
+## A.7 Seguridad del cliente y la dApp
+
+El contrato puede ser perfectamente seguro mientras que el frontend que lo maneja no lo es.
+Estos chequeos aplican a cualquier app web o móvil que interactúe con Stellar.
+
+- [ ] **Network passphrase validada** antes de firmar cualquier transacción (testnet ≠ pubnet).
+- [ ] **Simulación de transacción antes de enviar** — llamá `simulateTransaction` y mostrá cualquier falla al usuario antes de que firme.
+- [ ] **Todos los detalles de la operación mostrados claramente** — montos, emisor del asset, destino, fees. El usuario tiene que saber qué está aprobando.
+- [ ] **Confirmación requerida** para transacciones de alto valor.
+- [ ] **Todos los estados de error manejados** — timeouts de red, fees insuficientes, fallos de transacción.
+- [ ] **Sin validación solo en el cliente** — el contrato impone las reglas reales; la UI valida solo por UX.
+- [ ] **Direcciones de contratos verificadas** contra un registro conocido y fijo antes de llamarlos.
+- [ ] **Estado de trustline y clawback chequeado** antes de iniciar transferencias (ver A.5).
+
+## A.8 Herramientas de seguridad
 
 **Análisis estático**
-- **Scout (CoinFabrik)** — 23 detectores. `cargo install cargo-scout-audit` → `cargo scout-audit`. Output: HTML/MD/JSON/PDF/SARIF (CI/CD). Extensión VSCode disponible. → https://github.com/CoinFabrik/scout-soroban
-- **OpenZeppelin Security Detectors SDK** — framework para detectores personalizados (auth faltante, transferencias no verificadas, TTL incorrecto, panics). → https://github.com/OpenZeppelin/soroban-security-detectors-sdk
+- **Scout (CoinFabrik)** — 23 detectores. `cargo install cargo-scout-audit` → `cargo scout-audit`. Output: HTML/MD/JSON/PDF/SARIF (CI/CD). Extensión VSCode disponible. Detectores clave: `overflow-check`, `unprotected-update-current-contract-wasm`, `set-contract-storage`, `unrestricted-transfer-from`, `divide-before-multiply`, `dos-unbounded-operation`, `unsafe-unwrap`. → https://github.com/CoinFabrik/scout-soroban
+- **OpenZeppelin Security Detectors SDK** — framework para detectores personalizados. Pre-construidos: `auth_missing`, `unchecked_ft_transfer`, extensión de TTL incorrecta, panics de contrato, uso inseguro de temporary storage. Arquitectura: `sdk` (núcleo) + `detectors` (pre-construidos) + `soroban-scanner` (CLI). → https://github.com/OpenZeppelin/soroban-security-detectors-sdk
 
 **Verificación formal**
 - **Certora Sunbeam** — verificación formal a nivel WASM. → https://docs.certora.com/en/latest/docs/sunbeam/index.html
@@ -246,11 +302,12 @@ validan los retornos cross-contract?
 **Monitoreo post-deploy**
 - **OpenZeppelin Monitor (Stellar alpha)** — self-hosted via Docker, observabilidad con Prometheus + Grafana.
 
-## A.8 Auditorías y bug bounty
+## A.9 Auditorías y bug bounty
 
-- **Soroban Audit Bank (SDF):** US$3M+ desplegados en 43+ auditorías. Para proyectos financiados por SCF. Co-pago del 5% (reembolsable). Preparación con el framework **STRIDE** + Audit Readiness Checklist. → https://stellar.org/grants-and-funding/soroban-audit-bank
-- **Immunefi — Stellar Core:** hasta US$250K (stellar-core, SDKs, CLI/RPC). Requiere PoC, solo forks locales.
-- **Immunefi — OpenZeppelin Stellar:** hasta US$25K.
+- **Soroban Audit Bank (SDF):** US$3M+ desplegados en 43+ auditorías. Para proyectos financiados por SCF. Co-pago del 5% (reembolsable si se remedian los issues Críticos/Altos/Medios en 20 días hábiles). Auditorías de seguimiento activadas en $10M y $100M TVL. Preparación con el framework **STRIDE** + Audit Readiness Checklist. → https://stellar.org/grants-and-funding/soroban-audit-bank
+- **Immunefi — Stellar Core:** hasta US$250K. Scope: `stellar-core`, `rs-soroban-sdk`, `rs-soroban-env`, `soroban-tools` (CLI + RPC), `js-soroban-client`, `rs-stellar-xdr`, fork `wasmi`. Requiere PoC; solo forks locales (no mainnet/testnet). Pago en XLM. → https://immunefi.com/bug-bounty/stellar/
+- **Immunefi — OpenZeppelin Stellar:** hasta US$25K por bug (cap total del programa US$250K). Scope: librería OpenZeppelin Stellar Contracts. → https://immunefi.com/bug-bounty/openzeppelin-stellar/
+- **HackerOne — apps web del SDF:** scope son las aplicaciones web, servidores de producción y dominios del SDF. Ventana de remediación de 90 días antes de divulgación pública. → https://stellar.org/grants-and-funding/bug-bounty
 - **Firmas partners:** OtterSec, Veridise, Runtime Verification, CoinFabrik, Coinspect, Certora, Halborn, Zellic, Code4rena.
 
 > El repo `stellar-dev-skill` en sí **no** está en scope del bug bounty del SDF.

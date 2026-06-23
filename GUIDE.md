@@ -49,6 +49,12 @@ to expired TTL, blind trust in external contracts or oracles.
 the internet, unhardened SSH, leaked validator secrets (`NODE_SEED`),
 denial-of-service attacks.
 
+> **Concrete attacker model for contracts.** Always assume the attacker can:
+> - Pass any value as function arguments.
+> - Control transaction ordering and timing.
+> - Control any account that does *not* require their explicit signature.
+> - Deploy contracts that perfectly mimic your interface.
+
 ---
 
 # PART A — Soroban Smart Contract Security
@@ -146,10 +152,35 @@ pub enum DataKey {
 }
 ```
 
-### 6) Race conditions / state ordering
+### 6) Race conditions / state ordering and frontrunning
 
 Perform checks and state changes atomically, leaving no gap between "validate"
-and "act" (e.g., check slippage before transferring).
+and "act". For swaps and any operation where the on-chain price or amount is
+calculated at execution time, always let the user pass a slippage guard:
+
+```rust
+// ✅ GOOD: user controls acceptable slippage
+pub fn swap(env: Env, user: Address, amount_in: i128, min_out: i128) {
+    user.require_auth();
+
+    let balance = get_balance(&env, &user);
+    if balance < amount_in {
+        panic_with_error!(&env, Error::InsufficientBalance);
+    }
+
+    let amount_out = calculate_output(amount_in);
+    if amount_out < min_out {
+        panic_with_error!(&env, Error::SlippageExceeded);
+    }
+
+    // Update all state together — no gap between checks and effects
+    set_balance(&env, &user, balance - amount_in);
+    transfer_output(&env, &user, amount_out);
+}
+```
+
+Without `min_out` (and ideally a deadline), a sandwich attack can execute
+the transaction at an arbitrarily bad rate.
 
 ### 7) TTL / archival vulnerabilities
 
@@ -212,7 +243,17 @@ pub enum Error {
 Even if you work on Soroban, your dApp touches the classic Stellar layer:
 
 - **Malicious trustlines:** verify the issuer before creating a trustline. Always display the full asset code + issuer in the UI. Use known asset lists (`stellar.toml`).
-- **Clawback:** some assets allow the issuer to seize them. Check `auth_clawback_enabled` on the issuer's account and warn the user.
+- **Clawback:** some assets allow the issuer to seize them. Check `auth_clawback_enabled` on the issuer's account and warn the user or reject the asset:
+
+```typescript
+const issuerAccount = await server.loadAccount(asset.issuer);
+const clawbackEnabled = issuerAccount.flags.auth_clawback_enabled;
+
+if (clawbackEnabled) {
+  // Warn user clearly or reject the asset entirely
+}
+```
+
 - **Account merge:** a merged account can be recreated with a different configuration. Don't cache account state long-term for critical operations.
 
 ## A.6 Contract checklist (pre-deploy)
@@ -233,11 +274,25 @@ reinitialized? Are external calls validated? Is the arithmetic safe? Can keys
 collide? Does critical data survive archival? Are cross-contract return values
 validated?
 
-## A.7 Security tooling
+## A.7 Client-side and dApp security
+
+The contract can be perfectly secure while the frontend that drives it is not.
+These checks apply to any web or mobile app interacting with Stellar.
+
+- [ ] **Network passphrase validated** before signing any transaction (testnet ≠ pubnet).
+- [ ] **Transaction simulation before submission** — call `simulateTransaction` and surface any failure to the user before they sign.
+- [ ] **All operation details clearly displayed** — amounts, asset issuer, destination, fees. Users must know what they are approving.
+- [ ] **Confirmation required** for high-value transactions.
+- [ ] **All error states handled gracefully** — network timeouts, insufficient fees, transaction failures.
+- [ ] **No client-side-only validation** — the contract enforces the real rules; the UI validates only for UX.
+- [ ] **Contract addresses verified** against a hard-coded or pinned registry of known deployments before calling them.
+- [ ] **Trustline and clawback status checked** before initiating transfers (see A.5).
+
+## A.8 Security tooling
 
 **Static analysis**
-- **Scout (CoinFabrik)** — 23 detectors. `cargo install cargo-scout-audit` → `cargo scout-audit`. Output: HTML/MD/JSON/PDF/SARIF (CI/CD). VSCode extension available. → https://github.com/CoinFabrik/scout-soroban
-- **OpenZeppelin Security Detectors SDK** — framework for custom detectors (missing auth, unchecked transfers, improper TTL, panics). → https://github.com/OpenZeppelin/soroban-security-detectors-sdk
+- **Scout (CoinFabrik)** — 23 detectors. `cargo install cargo-scout-audit` → `cargo scout-audit`. Output: HTML/MD/JSON/PDF/SARIF (CI/CD). VSCode extension available. Key detectors: `overflow-check`, `unprotected-update-current-contract-wasm`, `set-contract-storage`, `unrestricted-transfer-from`, `divide-before-multiply`, `dos-unbounded-operation`, `unsafe-unwrap`. → https://github.com/CoinFabrik/scout-soroban
+- **OpenZeppelin Security Detectors SDK** — framework for custom detectors. Pre-built: `auth_missing`, `unchecked_ft_transfer`, improper TTL extension, contract panics, unsafe temporary storage. Architecture: `sdk` (core) + `detectors` (pre-built) + `soroban-scanner` (CLI). → https://github.com/OpenZeppelin/soroban-security-detectors-sdk
 
 **Formal verification**
 - **Certora Sunbeam** — formal verification at the WASM level. → https://docs.certora.com/en/latest/docs/sunbeam/index.html
@@ -246,11 +301,12 @@ validated?
 **Post-deploy monitoring**
 - **OpenZeppelin Monitor (Stellar alpha)** — self-hosted via Docker, observability with Prometheus + Grafana.
 
-## A.8 Audits and bug bounty
+## A.9 Audits and bug bounty
 
-- **Soroban Audit Bank (SDF):** US$3M+ deployed across 43+ audits. For SCF-funded projects. 5% co-payment (refundable). Preparation with the **STRIDE** framework + Audit Readiness Checklist. → https://stellar.org/grants-and-funding/soroban-audit-bank
-- **Immunefi — Stellar Core:** up to US$250K (stellar-core, SDKs, CLI/RPC). PoC required, local forks only.
-- **Immunefi — OpenZeppelin Stellar:** up to US$25K.
+- **Soroban Audit Bank (SDF):** US$3M+ deployed across 43+ audits. For SCF-funded projects. 5% co-payment (refundable if Critical/High/Medium issues are remediated within 20 business days). Follow-up audits triggered at $10M and $100M TVL milestones. Preparation with the **STRIDE** framework + Audit Readiness Checklist. → https://stellar.org/grants-and-funding/soroban-audit-bank
+- **Immunefi — Stellar Core:** up to US$250K. Scope: `stellar-core`, `rs-soroban-sdk`, `rs-soroban-env`, `soroban-tools` (CLI + RPC), `js-soroban-client`, `rs-stellar-xdr`, `wasmi` fork. PoC required; test on local forks only (no mainnet/testnet). Payment in XLM. → https://immunefi.com/bug-bounty/stellar/
+- **Immunefi — OpenZeppelin Stellar:** up to US$25K per bug ($250K total program cap). Scope: OpenZeppelin Stellar Contracts library. → https://immunefi.com/bug-bounty/openzeppelin-stellar/
+- **HackerOne — SDF web apps:** scope is SDF web applications, production servers, and domains. 90-day remediation window before public disclosure. → https://stellar.org/grants-and-funding/bug-bounty
 - **Partner firms:** OtterSec, Veridise, Runtime Verification, CoinFabrik, Coinspect, Certora, Halborn, Zellic, Code4rena.
 
 > The `stellar-dev-skill` repo itself is **not** in scope for SDF's bug bounty.
