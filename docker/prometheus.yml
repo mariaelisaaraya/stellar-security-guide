@@ -1,0 +1,38 @@
+# =============================================================================
+#  prometheus.yml  -  Prometheus config for the Stellar RPC monitoring stack
+#
+#  HOW TO USE:
+#  1. Uncomment the 'prometheus' service block in docker-compose.yml.
+#  2. This file is already referenced there as ./prometheus.yml.
+#  3. Access Prometheus at http://localhost:9090 (via SSH tunnel — do NOT
+#     expose port 9090 to the internet).
+#  4. For Grafana: add Prometheus as a data source and import a dashboard.
+#
+#  SECURITY NOTE:
+#  Prometheus and Grafana should never be reachable from the public internet.
+#  Access them through an SSH tunnel:
+#    ssh -L 9090:localhost:9090 stellaradmin@YOUR_SERVER_IP
+# =============================================================================
+
+global:
+  scrape_interval: 15s       # how often to scrape targets
+  evaluation_interval: 15s   # how often to evaluate alerting rules
+
+scrape_configs:
+  # ---------------------------------------------------------------------------
+  #  Stellar RPC metrics
+  #  Scraped from the admin endpoint (port 8001) — internal Docker network only.
+  # ---------------------------------------------------------------------------
+  - job_name: stellar-rpc
+    static_configs:
+      - targets:
+          - stellar-rpc:8001   # container name on stellar-net; never the public port
+    metrics_path: /metrics
+
+  # ---------------------------------------------------------------------------
+  #  (Optional) Prometheus self-monitoring
+  # ---------------------------------------------------------------------------
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090

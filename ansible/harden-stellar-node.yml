@@ -227,6 +227,30 @@
         state: started
 
     # -------------------------------------------------------------------------
+    # B.1.8  Reduce the attack surface (disable services not needed on a node)
+    # -------------------------------------------------------------------------
+    - name: Disable avahi-daemon if present (mDNS — not needed on a server)
+      ansible.builtin.systemd:
+        name: avahi-daemon
+        enabled: false
+        state: stopped
+      failed_when: false
+
+    - name: Disable cups if present (printing — not needed on a server)
+      ansible.builtin.systemd:
+        name: cups
+        enabled: false
+        state: stopped
+      failed_when: false
+
+    - name: Disable cups-browsed if present
+      ansible.builtin.systemd:
+        name: cups-browsed
+        enabled: false
+        state: stopped
+      failed_when: false
+
+    # -------------------------------------------------------------------------
     # B.1.9  Kernel hardening (sysctl)
     # -------------------------------------------------------------------------
     - name: Apply kernel hardening parameters
