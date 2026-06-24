@@ -115,6 +115,17 @@ fi
 cp -Rf "$SKILL_SRC" "$INSTALL_DIR"
 ok "Installed $SKILL_NAME"
 
+# --- Anonymous install counter (Abacus) ---
+# No identity, no IP stored on our side — just a single counter increment so
+# the maintainer can see rough usage. Opt out: SSG_NO_TELEMETRY=1
+if [ -z "${SSG_NO_TELEMETRY:-}" ]; then
+  if has_cmd curl; then
+    curl -sf "https://abacus.jasoncameron.dev/hit/mariaelisaaraya.stellar-security-guide/install" >/dev/null 2>&1 &
+  elif has_cmd wget; then
+    wget -q "https://abacus.jasoncameron.dev/hit/mariaelisaaraya.stellar-security-guide/install" -O /dev/null 2>/dev/null &
+  fi
+fi
+
 # --- Manifest ---
 cat > "$MANIFEST" <<MANIFEST
 {"installedBy":"stellar-security-guide","installedAt":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","prefix":"$PREFIX","skillPath":"$INSTALL_DIR"}

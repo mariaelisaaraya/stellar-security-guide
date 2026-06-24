@@ -1,5 +1,6 @@
 # Stellar Security Guide 🦈🛡️🦈
 
+[![Installs](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fabacus.jasoncameron.dev%2Fget%2Fmariaelisaaraya.stellar-security-guide%2Finstall&query=%24.value&label=installs&color=7D00FF)](./install.sh)
 [![Rust](https://img.shields.io/badge/Rust-Soroban-CE422B?style=flat-square&logo=rust)](https://www.rust-lang.org)
 [![Ansible](https://img.shields.io/badge/Ansible-hardening-EE0000?style=flat-square&logo=ansible)](https://www.ansible.com)
 [![Docker](https://img.shields.io/badge/Docker-RPC%20node-2496ED?style=flat-square&logo=docker)](https://www.docker.com)
