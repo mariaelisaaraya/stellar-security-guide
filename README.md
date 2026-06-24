@@ -1,6 +1,5 @@
 # Stellar Security Guide 🦈🛡️🦈
 
-[![Installs](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fabacus.jasoncameron.dev%2Fget%2Fmariaelisaaraya.stellar-security-guide%2Finstall&query=%24.value&label=installs&color=7D00FF)](./install.sh)
 [![Rust](https://img.shields.io/badge/Rust-Soroban-CE422B?style=flat-square&logo=rust)](https://www.rust-lang.org)
 [![Ansible](https://img.shields.io/badge/Ansible-hardening-EE0000?style=flat-square&logo=ansible)](https://www.ansible.com)
 [![Docker](https://img.shields.io/badge/Docker-RPC%20node-2496ED?style=flat-square&logo=docker)](https://www.docker.com)
@@ -33,7 +32,7 @@ Foundation sources, and keeps it practical.
 | Path | What it is |
 |------|-----------|
 | 📖 **[`GUIDE.md`](./GUIDE.md)** | The full security guide. Part A: Soroban contract security. Part B: node hardening. Part C: automation & checklists. **Start here.** |
-| 🔎 **[`skills/soroban-common-mistakes/`](./skills/soroban-common-mistakes/)** | An [Agent Skill](https://agentskills.io) that teaches Claude to review Soroban contracts against 23 common mistake patterns. Installable in Claude Code or claude.ai. |
+| 🔎 **[`skills/soroban-common-mistakes/`](./skills/soroban-common-mistakes/)** | A Claude Code skill that reviews Soroban contracts against 23 common mistake patterns. Installable in Claude Code or claude.ai. |
 | 🧪 **[`examples/`](./examples/)** | Practice contracts: `vulnerable-vault` (15 deliberate bugs across all 5 skill categories) and `fixed-vault` (every bug corrected and tagged). Use them to try the skill before pointing it at your own code. |
 | 🤖 **[`ansible/`](./ansible/)** | One-command server hardening. Provisions a fresh Ubuntu/Debian box into a hardened Stellar node (users, SSH, firewall, fail2ban, NTP, sysctl, auditing). |
 | 🐳 **[`docker/`](./docker/)** | An isolated Stellar RPC node behind a reverse proxy, with the admin endpoint kept off the internet. `docker compose up` and you're running. |

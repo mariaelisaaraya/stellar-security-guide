@@ -690,7 +690,7 @@ y `.github/workflows/`):
 - Scout (CoinFabrik): https://github.com/CoinFabrik/scout-soroban
 
 **Lectura adicional (Linux)**
-- Para ir más allá de esta guía: [How-To-Secure-A-Linux-Server](https://github.com/imthenachoman/How-To-Secure-A-Linux-Server) (referencia general, no específica de Stellar).
+- Para hardening más profundo del SO, las guías oficiales de Ubuntu y Debian son la referencia autorizada: [Ubuntu Security](https://ubuntu.com/security) · [Debian Security](https://www.debian.org/security/).
 
 ---
 

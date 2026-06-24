@@ -1,12 +1,9 @@
 # soroban-common-mistakes
 
-An [Agent Skill](https://agentskills.io) for Claude Code (and any compatible AI
-coding agent) that reviews **Soroban (Rust) smart contracts** against common
+A Claude Code skill that reviews **Soroban (Rust) smart contracts** against common
 security, logic, and code-quality mistakes.
 
-Adapted for Soroban from the structure of
-[solidity-common-mistakes-skill](https://github.com/AAYUSH-GUPTA-coder/solidity-common-mistakes-skill),
-with Soroban-specific rules sourced from the official
+Rules are sourced from the official
 [Stellar dev skill](https://github.com/stellar/stellar-dev-skill) security
 guidance. EVM-only checks (reentrancy/CEI, `tx.origin`, `transfer()` gas
 stipend, SafeERC20, floating pragma) were dropped because they don't apply to
@@ -85,8 +82,7 @@ This skill suggests (but doesn't require) these for deeper analysis:
 
 ## Credits
 
-- Structure inspired by [solidity-common-mistakes](https://github.com/AAYUSH-GUPTA-coder/solidity-common-mistakes-skill) by Aayush Gupta.
-- Soroban security patterns from the official [Stellar Development Foundation](https://github.com/stellar/stellar-dev-skill) material.
+Soroban security patterns from the official [Stellar Development Foundation](https://github.com/stellar/stellar-dev-skill) material.
 
 ## License
 
