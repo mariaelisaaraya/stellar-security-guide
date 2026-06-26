@@ -1,0 +1,114 @@
+# =============================================================================
+#  claude-review.yml — AI-powered Soroban security review on PRs
+#
+#  REQUIRED SECRET (one-time setup):
+#  Repository → Settings → Secrets and variables → Actions
+#    → New repository secret
+#       Name:  ANTHROPIC_API_KEY
+#       Value: your key from https://console.anthropic.com → API Keys
+#
+#  WHAT IT DOES:
+#  Triggers on PRs that touch contracts/**/*.rs or examples/*/src/**.
+#  Copies the soroban-common-mistakes skill (23 patterns) from this repo
+#  to the runner, then invokes Claude Code to review every changed contract
+#  file and post a single PR comment in Critical / Warning / Info table
+#  format (exact template from skills/soroban-common-mistakes/SKILL.md).
+#
+#  The PR is NEVER blocked — findings are advisory only.
+#  If the ANTHROPIC_API_KEY secret is absent the step is skipped cleanly.
+# =============================================================================
+
+name: Claude Soroban Security Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "contracts/**/*.rs"        # matches scout-audit.yml trigger convention
+      - "examples/*/src/**"
+
+permissions:
+  contents: read
+  pull-requests: write             # needed to post the review comment
+
+jobs:
+  claude-review:
+    name: soroban-common-mistakes
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0           # full history so git diff can reach base branch
+
+      # Collect the Rust contract files changed in this PR (capped at 20 to
+      # stay well inside a single Claude context window).
+      - name: Collect changed contract files
+        id: diff
+        run: |
+          FILES=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD" \
+            -- 'contracts/**/*.rs' \
+               'examples/*/src/*.rs' \
+               'examples/*/src/**/*.rs' \
+            | head -20)
+          echo "files<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$FILES"    >> "$GITHUB_OUTPUT"
+          echo "EOF"       >> "$GITHUB_OUTPUT"
+
+      # The skill lives in this repo; copy it to the standard Claude Code
+      # skills directory so the runner picks it up automatically.
+      - name: Install soroban-common-mistakes skill
+        run: |
+          mkdir -p ~/.claude/skills/soroban-common-mistakes
+          cp skills/soroban-common-mistakes/SKILL.md \
+             ~/.claude/skills/soroban-common-mistakes/SKILL.md
+
+      # Run Claude Code with the skill loaded.
+      # continue-on-error: true ensures the PR is never blocked — even on
+      # API errors or when findings are Critical.
+      - name: Run Claude security review
+        uses: anthropics/claude-code-action@v1
+        continue-on-error: true
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token:      ${{ secrets.GITHUB_TOKEN }}
+          allowed_tools:     "Read,Bash"
+          claude_args:       "--max-turns 10 --model claude-sonnet-4-6"
+          prompt: |
+            Run the soroban-common-mistakes security review on every Soroban
+            contract file changed in this PR:
+
+            ${{ steps.diff.outputs.files }}
+
+            For each file:
+            1. Read the full file contents.
+            2. Apply all 23 checks from the soroban-common-mistakes skill
+               (5 categories: auth, storage/TTL, math, external calls,
+               code quality).
+            3. Flag only issues that are actually present — do not pad the
+               report with rules that pass cleanly.
+
+            Post a single PR comment using this exact template for each file
+            reviewed (one table block per contract if multiple files):
+
+            ## Review: [Contract Name]
+
+            ### Critical (must fix)
+            | # | Rule | Location | Finding | Fix |
+            |---|------|----------|---------|-----|
+
+            ### Warning (should fix)
+            | # | Rule | Location | Finding | Fix |
+            |---|------|----------|---------|-----|
+
+            ### Info (consider fixing)
+            | # | Rule | Location | Finding | Fix |
+            |---|------|----------|---------|-----|
+
+            ### Summary
+            - X critical, Y warnings, Z info findings
+            - [1-2 sentence overall assessment]
+
+            Do not open a file, suggest code changes, or create commits.
+            This review is advisory — the PR should not be failed.
