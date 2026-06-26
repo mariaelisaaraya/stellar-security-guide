@@ -1,3 +1,4 @@
+// test-trigger
 // =============================================================================
 //  vulnerable-vault — an intentionally broken Soroban contract
 //
